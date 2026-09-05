@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from hatchling.metadata.utils import split_import_name_annotation
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from hatchling.metadata.core import ProjectMetadata
 
-DEFAULT_METADATA_VERSION = "2.4"
+DEFAULT_METADATA_VERSION = "2.5"
 LATEST_METADATA_VERSION = "2.5"
 CORE_METADATA_PROJECT_FIELDS = {
     "Author": ("authors",),
@@ -214,7 +216,7 @@ def project_metadata_from_core_metadata(core_metadata: str) -> dict[str, Any]:
     return metadata
 
 
-def construct_metadata_file_1_2(metadata: ProjectMetadata, extra_dependencies: tuple[str] | None = None) -> str:
+def construct_metadata_file_1_2(metadata: ProjectMetadata[Any], extra_dependencies: tuple[str] | None = None) -> str:
     """
     https://peps.python.org/pep-0345/
     """
@@ -275,7 +277,7 @@ def construct_metadata_file_1_2(metadata: ProjectMetadata, extra_dependencies: t
     return metadata_file
 
 
-def construct_metadata_file_2_1(metadata: ProjectMetadata, extra_dependencies: tuple[str] | None = None) -> str:
+def construct_metadata_file_2_1(metadata: ProjectMetadata[Any], extra_dependencies: tuple[str] | None = None) -> str:
     """
     https://peps.python.org/pep-0566/
     """
@@ -352,7 +354,7 @@ def construct_metadata_file_2_1(metadata: ProjectMetadata, extra_dependencies: t
     return metadata_file
 
 
-def construct_metadata_file_2_2(metadata: ProjectMetadata, extra_dependencies: tuple[str] | None = None) -> str:
+def construct_metadata_file_2_2(metadata: ProjectMetadata[Any], extra_dependencies: tuple[str] | None = None) -> str:
     """
     https://peps.python.org/pep-0643/
     """
@@ -438,7 +440,7 @@ def construct_metadata_file_2_2(metadata: ProjectMetadata, extra_dependencies: t
     return metadata_file
 
 
-def construct_metadata_file_2_3(metadata: ProjectMetadata, extra_dependencies: tuple[str] | None = None) -> str:
+def construct_metadata_file_2_3(metadata: ProjectMetadata[Any], extra_dependencies: tuple[str] | None = None) -> str:
     """
     https://peps.python.org/pep-0685/
     """
@@ -524,7 +526,7 @@ def construct_metadata_file_2_3(metadata: ProjectMetadata, extra_dependencies: t
     return metadata_file
 
 
-def construct_metadata_file_2_4(metadata: ProjectMetadata, extra_dependencies: tuple[str] | None = None) -> str:
+def construct_metadata_file_2_4(metadata: ProjectMetadata[Any], extra_dependencies: tuple[str] | None = None) -> str:
     """
     https://peps.python.org/pep-0639/
     """
@@ -633,12 +635,14 @@ def construct_metadata_file_2_5(metadata: ProjectMetadata, extra_dependencies: t
             metadata_file += "Import-Name\n"
 
         for import_name in metadata.core.import_names:
-            _name = f"{import_name}; private" if import_name.startswith("_") else import_name
+            name, private = split_import_name_annotation(import_name)
+            _name = f"{name}; private" if private or name.startswith("_") else name
             metadata_file += f"Import-Name: {_name}\n"
 
     if metadata.core.import_namespaces:
         for import_namespace in metadata.core.import_namespaces:
-            _name = f"{import_namespace}; private" if import_namespace.startswith("_") else import_namespace
+            name, private = split_import_name_annotation(import_namespace)
+            _name = f"{name}; private" if private or name.startswith("_") else name
             metadata_file += f"Import-Namespace: {_name}\n"
 
     if metadata.core.dynamic:

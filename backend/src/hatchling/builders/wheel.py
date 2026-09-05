@@ -27,6 +27,7 @@ from hatchling.builders.utils import (
     set_zip_info_mode,
 )
 from hatchling.metadata.spec import DEFAULT_METADATA_VERSION, get_core_metadata_constructors
+from hatchling.plugin.manager import PluginManager
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
@@ -36,6 +37,10 @@ if TYPE_CHECKING:
 
 
 TIME_TUPLE = tuple[int, int, int, int, int, int]
+
+# The Linux kernel only reads the first BINPRM_BUF_SIZE (256) bytes of a shebang
+# line, so anything longer cannot be a functional shebang and is left untouched.
+MAX_SHEBANG_LENGTH = 256
 
 
 class FileSelectionOptions(NamedTuple):
@@ -162,6 +167,10 @@ class WheelArchive:
         shared_file.distribution_path = f"{self.shared_data_directory}/data/{shared_file.distribution_path}"
         return self.add_file(shared_file)
 
+    def add_shared_script(self, shared_script: IncludedFile) -> tuple[str, str, str]:
+        shared_script.distribution_path = f"{self.shared_data_directory}/scripts/{shared_script.distribution_path}"
+        return self.add_file(shared_script)
+
     def add_extra_metadata_file(self, extra_metadata_file: IncludedFile) -> tuple[str, str, str]:
         extra_metadata_file.distribution_path = (
             f"{self.metadata_directory}/extra_metadata/{extra_metadata_file.distribution_path}"
@@ -206,7 +215,7 @@ class WheelArchive:
         self.fd.close()
 
 
-class WheelBuilderConfig(BuilderConfig):
+class WheelBuilderConfig(BuilderConfig[PluginManager]):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
@@ -484,7 +493,7 @@ class WheelBuilderConfig(BuilderConfig):
             return name
 
 
-class WheelBuilder(BuilderInterface):
+class WheelBuilder(BuilderInterface[WheelBuilderConfig, PluginManager]):
     """
     Build a binary distribution (.whl file)
     """
@@ -681,24 +690,28 @@ class WheelBuilder(BuilderInterface):
 
         for shared_script in self.recurse_explicit_files(shared_scripts):
             with open(shared_script.path, "rb") as f:
-                content = BytesIO()
-                for line in f:
-                    # Ignore leading blank lines
-                    if not line.strip():
-                        continue
+                prefix = f.read(2)
 
-                    match = shebang.match(line)
-                    if match is None:
-                        content.write(line)
+                # A shebang is only honored on the first line starting at the very
+                # first byte, so anything else is kept as is.
+                if prefix != b"#!":
+                    record = archive.add_shared_script(shared_script)
+                else:
+                    line = prefix + f.readline(MAX_SHEBANG_LENGTH - len(prefix))
+                    if len(line) == MAX_SHEBANG_LENGTH and not line.endswith(b"\n"):
+                        # The line is too long to be a functional shebang.
+                        record = archive.add_shared_script(shared_script)
+                    elif (match := shebang.match(line)) is None:
+                        record = archive.add_shared_script(shared_script)
                     else:
+                        content = BytesIO()
                         content.write(b"#!python")
                         if remaining := match.group(1):
                             content.write(remaining)
+                        content.write(f.read())
 
-                    content.write(f.read())
-                    break
+                        record = archive.write_shared_script(shared_script, content.getvalue())
 
-            record = archive.write_shared_script(shared_script, content.getvalue())
             records.write(record)
 
     def add_sboms(self, archive: WheelArchive, records: RecordFile, build_data: dict[str, Any]) -> None:
